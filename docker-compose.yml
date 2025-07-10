@@ -24,12 +24,36 @@ services:
       - REDIS_URL=redis://redis:6379
       - ALPHA_VANTAGE_KEY=${ALPHA_VANTAGE_KEY}
       - NEWS_API_KEY=${NEWS_API_KEY}
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
     restart: unless-stopped
     volumes:
       - ./services/market_scanner:/app/services/market_scanner
       - ./shared:/app/shared
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  news-analyzer:
+    build:
+      context: .
+      dockerfile: services/news_analyzer/Dockerfile
+    ports:
+      - "5001:5001"
+    depends_on:
+      - redis
+      - market-scanner
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
+      - NEWS_API_KEY=${NEWS_API_KEY}
+    restart: unless-stopped
+    volumes:
+      - ./services/news_analyzer:/app/services/news_analyzer
+      - ./shared:/app/shared
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
       timeout: 10s
       retries: 3 

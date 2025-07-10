@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 class StockAlert(BaseModel):
     """Model for stock market events with validation."""
@@ -26,6 +26,31 @@ class MarketEvent(BaseModel):
     change_percent: float
     volume: int
     timestamp: str  # Using string for faster JSON serialization
+    
+    class Config:
+        # Optimization: Enable JSON encoders for better performance
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+class NewsData(BaseModel):
+    """Model for news data from Finnhub API."""
+    headline: str
+    summary: str
+    url: str
+    datetime: int  # Unix timestamp
+    source: str
+
+class NewsAlert(BaseModel):
+    """Model for news alerts with sentiment analysis - enhanced for Finnhub."""
+    symbol: str = Field(..., min_length=1, max_length=10, description="Stock ticker symbol")
+    price: float = Field(..., gt=0, description="Current stock price")
+    change_percent: float = Field(..., description="Percentage change")
+    news_sentiment: float = Field(..., ge=-1, le=1, description="Sentiment score (-1 to 1)")
+    news_count: int = Field(..., ge=0, description="Number of news articles analyzed")
+    news_summary: str = Field(..., max_length=500, description="Brief news summary")
+    top_headlines: List[str] = Field(default_factory=list, description="Top headlines")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Alert timestamp")
     
     class Config:
         # Optimization: Enable JSON encoders for better performance

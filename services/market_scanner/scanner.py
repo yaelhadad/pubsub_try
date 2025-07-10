@@ -38,7 +38,7 @@ class StockScanner:
             url = f"https://www.alphavantage.co/query"
             params = {
                 'function': 'TOP_GAINERS_LOSERS',
-                'apikey': settings.alpha_vantage_key
+                'apikey': settings.alpha_vantage_api_key
             }
             
             response = self.session.get(url, params=params, timeout=10)
