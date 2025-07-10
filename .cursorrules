@@ -1,0 +1,349 @@
+# Stock Alert System - Cursor Rules
+
+## Project Overview
+Build a simple stock alert system with 3 microservices communicating via Redis PubSub:
+1. Market Scanner - Scans stocks and publishes to "market_events"
+2. News Analyzer - Listens to "market_events", analyzes news, publishes to "news_alerts"
+3. Notification Service - Listens to "news_alerts", sends notifications
+
+## Architecture Rules
+
+### Technology Stack
+- **Flask** - Web framework for all services
+- **Redis** - PubSub messaging only (no Celery)
+- **requests** - HTTP calls to external APIs
+- **APScheduler** - Simple task scheduling
+- **smtplib** - Email sending
+- **Pydantic** - Data validation
+
+### Project Structure
+```
+stock-alert-system/
+├── services/
+│   ├── market_scanner/
+│   │   ├── app.py              # Flask app
+│   │   ├── scanner.py          # Alpha Vantage API calls
+│   │   ├── scheduler.py        # APScheduler
+│   │   └── Dockerfile
+│   ├── news_analyzer/
+│   │   ├── app.py              # Flask app
+│   │   ├── consumer.py         # PubSub consumer
+│   │   ├── news_fetcher.py     # News API calls
+│   │   └── Dockerfile
+│   └── notification_service/
+│       ├── app.py              # Flask app
+│       ├── consumer.py         # PubSub consumer
+│       ├── email_sender.py     # Email notifications
+│       └── Dockerfile
+├── shared/
+│   ├── config.py               # Environment variables
+│   ├── pubsub.py              # Redis PubSub wrapper
+│   └── models.py              # Pydantic models
+├── docker-compose.yml
+└── requirements.txt
+```
+
+## Code Quality Rules
+
+### 1. Flask Application Structure
+```python
+# Always use this Flask app structure
+from flask import Flask, jsonify
+import logging
+
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "healthy", "service": "market_scanner"})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
+```
+
+### 2. Error Handling
+```python
+# Always use try-except with proper logging
+try:
+    stock_data = get_stock_data("AAPL")
+    logger.info(f"Successfully fetched data for AAPL")
+except requests.RequestException as e:
+    logger.error(f"Error fetching stock data: {e}")
+    return None
+except Exception as e:
+    logger.error(f"Unexpected error: {e}")
+    return None
+```
+
+### 3. PubSub Pattern
+```python
+# Always use the shared PubSub wrapper
+from shared.pubsub import SimplePubSub
+
+pubsub = SimplePubSub()
+
+# Publishing
+pubsub.publish("market_events", {
+    "symbol": "AAPL",
+    "price": 150.0,
+    "change_percent": 5.2,
+    "timestamp": datetime.now().isoformat()
+})
+
+# Consuming
+def process_message(data):
+    logger.info(f"Received: {data}")
+
+pubsub.subscribe("market_events", process_message)
+```
+
+### 4. Configuration Management
+```python
+# Always use environment variables
+import os
+from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    redis_url: str = "redis://localhost:6379"
+    alpha_vantage_key: str = os.getenv("ALPHA_VANTAGE_KEY")
+    news_api_key: str = os.getenv("NEWS_API_KEY")
+    
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+```
+
+### 5. API Calls
+```python
+# Always use requests with proper error handling
+import requests
+
+def get_stock_data(symbol: str) -> dict:
+    try:
+        url = f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={settings.alpha_vantage_key}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        logger.error(f"API call failed: {e}")
+        return None
+```
+
+### 6. Logging
+```python
+# Always use structured logging
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Info level for normal operations
+logger.info(f"Processing stock {symbol}")
+
+# Error level for exceptions
+logger.error(f"Failed to process {symbol}: {error}")
+
+# Debug level for detailed info
+logger.debug(f"Stock data: {stock_data}")
+```
+
+### 7. Threading for Consumers
+```python
+# Always use daemon threads for PubSub consumers
+import threading
+
+def start_consumer():
+    pubsub.subscribe("market_events", process_message)
+
+consumer_thread = threading.Thread(target=start_consumer)
+consumer_thread.daemon = True
+consumer_thread.start()
+```
+
+### 8. Data Models
+```python
+# Always use Pydantic for data validation
+from pydantic import BaseModel
+from datetime import datetime
+
+class StockAlert(BaseModel):
+    symbol: str
+    price: float
+    change_percent: float
+    volume: int
+    timestamp: datetime
+
+class NewsAlert(BaseModel):
+    symbol: str
+    price: float
+    news_sentiment: float
+    news_summary: str
+    timestamp: datetime
+```
+
+### 9. Simple Sentiment Analysis
+```python
+# Use simple keyword-based sentiment analysis
+def analyze_sentiment(articles):
+    positive_words = ["gain", "rise", "up", "positive", "growth", "increase", "buy", "bullish"]
+    negative_words = ["loss", "fall", "down", "negative", "decline", "decrease", "sell", "bearish"]
+    
+    total_score = 0
+    for article in articles:
+        text = f"{article['title']} {article.get('description', '')}".lower()
+        score = 0
+        
+        for word in positive_words:
+            score += text.count(word)
+        
+        for word in negative_words:
+            score -= text.count(word)
+        
+        total_score += score
+    
+    # Normalize score between 0 and 1
+    normalized_score = max(0, min(1, (total_score + 10) / 20))
+    return normalized_score
+```
+
+### 10. Email Sending
+```python
+# Always use smtplib for email sending
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def send_email(to_email: str, subject: str, body: str):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = settings.smtp_username
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(settings.smtp_server, settings.smtp_port)
+        server.starttls()
+        server.login(settings.smtp_username, settings.smtp_password)
+        server.send_message(msg)
+        server.quit()
+        
+        logger.info(f"Email sent successfully to {to_email}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        return False
+```
+
+## Implementation Rules
+
+### 1. Start Simple
+- Begin with basic functionality
+- Add features incrementally
+- Test each component before moving to next
+
+### 2. Service Independence
+- Each service should run independently
+- Use Docker containers for isolation
+- Services communicate only via PubSub
+
+### 3. Error Resilience
+- Handle API failures gracefully
+- Log all errors with context
+- Continue processing other items on single failure
+
+### 4. Message Format
+```python
+# Always use consistent message formats
+market_event = {
+    "symbol": "AAPL",
+    "price": 150.0,
+    "change_percent": 5.2,
+    "volume": 1000000,
+    "timestamp": "2025-01-15T10:30:00Z"
+}
+
+news_alert = {
+    "symbol": "AAPL",
+    "price": 150.0,
+    "change_percent": 5.2,
+    "news_sentiment": 0.8,
+    "news_summary": "Positive earnings report",
+    "timestamp": "2025-01-15T10:35:00Z"
+}
+```
+
+### 5. Environment Variables
+```python
+# Always define these environment variables
+REDIS_URL=redis://localhost:6379
+ALPHA_VANTAGE_KEY=your_alpha_vantage_key
+NEWS_API_KEY=your_news_api_key
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your_email@gmail.com
+SMTP_PASSWORD=your_app_password
+```
+
+### 6. Docker Best Practices
+```dockerfile
+# Always use this Dockerfile template
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 5000
+
+CMD ["python", "app.py"]
+```
+
+### 7. Testing
+```python
+# Always include basic tests
+def test_pubsub_connection():
+    pubsub = SimplePubSub()
+    # Test connection
+    assert pubsub.redis.ping() == True
+
+def test_stock_data_fetch():
+    data = get_stock_data("AAPL")
+    assert data is not None
+    assert "top_gainers" in data
+```
+
+## Development Workflow
+
+### Phase 1: Market Scanner (Days 1-3)
+1. Create Flask app with health check
+2. Implement Alpha Vantage API integration
+3. Add APScheduler for periodic scanning
+4. Implement PubSub publishing
+5. Test with Docker Compose
+
+### Phase 2: News Analyzer (Days 4-6)
+1. Create Flask app with PubSub consumer
+2. Implement News API integration
+3. Add simple sentiment analysis
+4. Publish news alerts
+5. Test market_events → news_alerts flow
+
+### Phase 3: Notification Service (Days 7-9)
+1. Create Flask app with PubSub consumer
+2. Implement email notifications
+3. Add Discord webhook support
+4. Test end-to-end flow
+5. Deploy complete system
+
+## Success Criteria
+- All services run independently in Docker
+- PubSub messaging works reliably
+- Email notifications are sent successfully
+- System handles API failures gracefully
+- Complete end-to-end flow works
